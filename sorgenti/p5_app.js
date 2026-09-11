@@ -36,7 +36,70 @@ function save(markEdited) {
   S.savedAt = Date.now();
   lsSet(LS_KEY, persistable());
   if (dbRef) { clearTimeout(dbTimer); dbTimer = setTimeout(() => dbRef.set(persistable()).catch(() => {}), 700); }
+  schedulePush();
 }
+
+// ---------- Sincronizzazione telefono ↔ PC (script Google) ----------
+// Il link di collegamento è ...#collega=<base64 di {"url":..,"codice":..}>: si apre una volta su ogni dispositivo.
+const LS_SYNC = "settimana-nel-piatto-sync";
+const IS_TOP = window.top === window.self;
+let sync = lsGet(LS_SYNC) || { url: "", codice: "" };
+let syncInfo = { stato: "off", ora: null };
+(function collega() {
+  const m = location.hash.match(/collega=([^&]+)/);
+  if (!m) return;
+  try {
+    const d = JSON.parse(atob(decodeURIComponent(m[1])));
+    if (d.url && d.codice) { sync = { url: d.url, codice: d.codice }; lsSet(LS_SYNC, sync); syncInfo.nuovo = true; }
+  } catch (e) { syncInfo.stato = "link"; }
+  history.replaceState(null, "", location.pathname + location.search);
+})();
+async function chiama(corpo) {
+  const r = await fetch(sync.url, { method: "POST", body: JSON.stringify(Object.assign({ codice: sync.codice }, corpo)) });
+  return r.json();
+}
+function setSync(stato) { syncInfo.stato = stato; if (stato === "ok") syncInfo.ora = new Date(); showSync(); }
+function showSync() {
+  const el = $("sync"); if (!el) return;
+  if (!IS_TOP) { el.textContent = ""; return; }
+  const t = syncInfo.ora ? syncInfo.ora.getHours() + ":" + String(syncInfo.ora.getMinutes()).padStart(2, "0") : "";
+  el.textContent = {
+    off: "Non collegato: le scelte restano su questo dispositivo.",
+    link: "Il link di collegamento non è valido.",
+    attesa: "Sincronizzo…",
+    ok: "Sincronizzato con gli altri dispositivi alle " + t + ".",
+    codice: "Sincronizzazione: il codice non è quello giusto.",
+    err: "Sincronizzazione non riuscita, forse sei senza rete. Riprovo da solo."
+  }[syncInfo.stato] || "";
+}
+function prendi(j) {
+  if (!j.stato || (j.salvato || 0) <= (S.savedAt || 0)) return false;
+  adopt(j.stato); S.savedAt = j.salvato; lsSet(LS_KEY, persistable()); render(); return true;
+}
+async function pull() {
+  if (!sync.url || !IS_TOP) return;
+  try {
+    const j = await chiama({ azione: "leggi" });
+    if (!j.ok) return setSync(j.errore === "codice" ? "codice" : "err");
+    if (!prendi(j) && (S.savedAt || 0) > (j.salvato || 0)) return push();
+    setSync("ok");
+  } catch (e) { setSync("err"); }
+}
+let pushT = null, pushing = false;
+function schedulePush() { if (!sync.url || !IS_TOP) return; clearTimeout(pushT); pushT = setTimeout(push, 1200); }
+async function push() {
+  if (pushing) return schedulePush();
+  pushing = true;
+  try {
+    const j = await chiama({ azione: "scrivi", stato: persistable(), salvato: S.savedAt || Date.now() });
+    if (j.ok) setSync("ok");
+    else if (j.errore === "vecchio") { prendi(j); setSync("ok"); }
+    else setSync(j.errore === "codice" ? "codice" : "err");
+  } catch (e) { setSync("err"); }
+  pushing = false;
+}
+window.addEventListener("online", pull);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pull(); });
 function saveUI() { lsSet(LS_UI, { tab: S.tab, view: S.view, weekStart: S.weekStart, day: S.day }); }
 
 // ---------- Utilità ----------
@@ -306,6 +369,9 @@ $("wk-prev").addEventListener("click", () => { S.weekStart = toISO(addDays(parse
 $("wk-next").addEventListener("click", () => { S.weekStart = toISO(addDays(parseISO(S.weekStart), 7)); openEditor = null; saveUI(); render(); });
 
 render();
+showSync();
+if (syncInfo.nuovo) setTimeout(() => toast("Collegato: da ora si sincronizza"), 300);
+pull();
 
 // ---------- Salvataggio condiviso fra PC e telefono (se disponibile) ----------
 (async () => {
