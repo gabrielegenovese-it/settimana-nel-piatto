@@ -1,0 +1,17 @@
+{
+  "name": "Settimana nel piatto",
+  "short_name": "Piatto",
+  "description": "Il piano alimentare un giorno alla volta, con gli orari degli allenamenti",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f5f3",
+  "theme_color": "#cf4a26",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

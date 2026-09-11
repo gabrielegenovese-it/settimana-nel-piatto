@@ -1,0 +1,30 @@
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Settimana nel piatto</h1>
+      <p>Il tuo piano alimentare, un giorno alla volta. Pesi sempre a crudo.</p>
+    </div>
+    <div class="weeknav" aria-label="Scegli la settimana">
+      <button type="button" id="wk-prev" aria-label="Settimana precedente">‹</button>
+      <div class="weeklabel" id="wk-label" aria-live="polite"></div>
+      <button type="button" id="wk-next" aria-label="Settimana successiva">›</button>
+    </div>
+  </header>
+
+  <nav class="steps" role="tablist" aria-label="Passi">
+    <button type="button" role="tab" id="tab-train" data-action="tab" data-tab="train"><span class="n">1</span><span class="t">Quando mi alleno<span class="s">giorni e orari</span></span></button>
+    <button type="button" role="tab" id="tab-likes" data-action="tab" data-tab="likes"><span class="n">2</span><span class="t">Cosa mi piace<span class="s">scegli i cibi</span></span></button>
+    <button type="button" role="tab" id="tab-week" data-action="tab" data-tab="week"><span class="n">3</span><span class="t">La mia settimana<span class="s">il calendario</span></span></button>
+  </nav>
+
+  <div id="banner"></div>
+
+  <section id="pane-week" role="tabpanel" aria-labelledby="tab-week"></section>
+  <section id="pane-train" role="tabpanel" aria-labelledby="tab-train" hidden></section>
+  <section id="pane-likes" role="tabpanel" aria-labelledby="tab-likes" hidden></section>
+
+  <p class="foot">Costruito dal piano alimentare consegnato il 7 settembre 2026, versione vegetariana: niente carne e niente pesce. Le quantità sono quelle del piano; quelle di gnocchi, patate e trofie sono calcolate con le equivalenze del piano. Gli orari degli spuntini sono indicativi. Due punti sono una mia interpretazione, da confermare col nutrizionista: lo spuntino prima o dopo l'allenamento prende il posto di quello normale, e la Fase 3 parte dal 19 ottobre.</p>
+  <p class="foot" style="margin-top:6px">Versione 2</p>
+</div>
+<div id="toast" class="toast" hidden></div>
