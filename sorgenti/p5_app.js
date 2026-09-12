@@ -267,7 +267,7 @@ function dayStrip(p) {
   return h;
 }
 function renderTrain(W) {
-  let h = '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Non mangi mai mentre ti alleni: pranzo e cena finiscono almeno 2 ore prima, colazione e spuntini 1 ora prima. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
+  let h = '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Ogni pasto, anche colazione e spuntini, sta almeno 1 ora e mezza prima dell\'allenamento, oppure subito dopo. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
   for (let d = 0; d < 7; d++) {
     const tr = S.training[d];
     h += '<div class="trow"><div class="lbl">' + DAY_NAMES[d] + '</div><div class="trctl">' +

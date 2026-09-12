@@ -11,10 +11,10 @@ function fase3Possible(wi) { return wi >= 6; }
 // ---------- Orari ----------
 function toMin(s) { const [h, m] = String(s || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); }
 function fmtMin(n) { n = ((Math.round(n / 5) * 5) % 1440 + 1440) % 1440; return Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0"); }
-// Regola: mai mangiare mentre ti alleni. Pranzo e cena finiscono almeno 2 ore prima dell'inizio,
-// colazione e spuntini almeno 1 ora prima; dopo l'allenamento si mangia anche subito.
+// Regola di Gabriele: mai mangiare mentre ti alleni, e ogni pasto (colazione e spuntini compresi)
+// almeno 1 ora e mezza prima dell'inizio; dopo l'allenamento si mangia anche subito.
 // Un pasto che cade in mezzo va prima o dopo, dove si sposta di meno.
-const GAP_MAIN = 120, GAP_LIGHT = 60, COL = 570, COL_END = 660;
+const GAP = 90, GAP_MAIN = GAP, GAP_LIGHT = GAP, COL = 570, COL_END = 660;
 function fitAround(pref, gap, s, e, lo) {
   if (pref <= s - gap || pref >= e) return pref;
   const before = s - gap;
@@ -41,7 +41,7 @@ function planDay(tr, times) {
   if (e <= p.pranzo) { p.kind = "am"; p.post = mealRightAfter ? null : e; }
   else if (s >= p.cena) p.kind = "eve";
   else if (s - p.pranzo < 180) { p.kind = "early"; p.snack = null; p.post = mealRightAfter ? null : e; }
-  else { p.kind = "late"; p.snack = null; p.pre = Math.max(p.pranzo + 120, s - 90); }
+  else { p.kind = "late"; p.snack = null; p.pre = s - GAP; }
   return p;
 }
 function movedNote(which, p) {
@@ -49,7 +49,7 @@ function movedNote(which, p) {
   if (from == null) return "";
   const name = { col: "Colazione", pranzo: "Pranzo", cena: "Cena" }[which];
   const o = which === "pranzo" ? "o" : "a";
-  if (p[which] < from) return name + " anticipat" + o + " (di solito alle " + fmtMin(from) + "): così hai " + (which === "col" ? "1 ora" : "2 ore") + " per digerire prima dell'allenamento.";
+  if (p[which] < from) return name + " anticipat" + o + " (di solito alle " + fmtMin(from) + "): così hai 1 ora e mezza per digerire prima dell'allenamento.";
   return name + " spostat" + o + " a dopo l'allenamento (di solito alle " + fmtMin(from) + ").";
 }
 
