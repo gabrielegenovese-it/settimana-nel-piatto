@@ -210,13 +210,14 @@ function renderGrid(W) {
   W.days.forEach((day) => {
     h += '<div class="wcol"><button type="button" class="wcol-h' + (day.isTrain ? " train" : "") + '" data-action="openday" data-day="' + day.d + '"><b>' + DAY_SHORT[day.d] + " " + day.date.getDate() + "</b><span>" + (day.isTrain ? "allenamento " + day.time : "riposo") + "</span></button>";
     day.items.forEach((it) => {
-      if (it.slot === "ginseng" || it.slot === "dur") return;
-      const label = { col: "Colazione", pranzo: "Pranzo", cena: "Cena", snack: "Spuntino", pre: "Prima allen.", post: "Dopo allen.", postam: "Dopo allen. (se vuoi)", choc: "Dopo cena" }[it.slot] || it.when;
-      const text = it.slot === "pranzo" || it.slot === "cena" || it.slot === "choc" ? it.title : (it.short || it.title);
+      if (it.slot === "ginseng") return;
+      const label = { col: "Colazione", pranzo: "Pranzo", cena: "Cena", snack: "Spuntino", pre: "Prima allen.", post: "Dopo allen.", postam: "Dopo, se vuoi", choc: "Dopo cena", dur: "Allenamento" }[it.slot] || it.when;
+      const time = it.slot === "dur" ? it.sub : it.slot === "choc" ? "" : fmtMin(it.t);
+      const text = it.slot === "dur" ? (it.lines[0] ? it.lines[0][0] + " " + it.lines[0][1].split(" nell")[0] : "") : it.slot === "pranzo" || it.slot === "cena" || it.slot === "choc" ? it.title : (it.short || it.title);
       const cls = ["wcell"];
       if (it.group) cls.push("g-" + it.group);
       if (it.train) cls.push("train");
-      h += '<div class="' + cls.join(" ") + '"><i>' + label + "</i>" + esc(cap(text)) + "</div>";
+      h += '<div class="' + cls.join(" ") + '"><i>' + label + (time ? ' <span class="num">' + time + "</span>" : "") + "</i>" + esc(cap(text)) + "</div>";
     });
     h += "</div>";
   });
@@ -245,11 +246,30 @@ function renderSide(W) {
 }
 
 // ---------- Passo 1: allenamenti ----------
+// La giornata in fila, con gli orari veri: si vede subito se un pasto è stato spostato.
+function dayStrip(p) {
+  const seq = [
+    { t: p.col, n: "Colazione", m: p.moved.col != null },
+    { t: p.pranzo, n: "Pranzo", m: p.moved.pranzo != null },
+    { t: p.cena, n: "Cena", m: p.moved.cena != null },
+    { t: p.s, n: "Allenamento", end: p.e, train: true }
+  ];
+  if (p.pre != null) seq.push({ t: p.pre, n: "Spuntino prima" });
+  if (p.post != null) seq.push({ t: p.post + 1, n: p.kind === "am" ? "Spuntino dopo, se vuoi" : "Spuntino dopo" });
+  if (p.snack != null) seq.push({ t: p.snack, n: "Spuntino" });
+  seq.sort((a, b) => a.t - b.t);
+  let h = '<ol class="strip">';
+  seq.forEach((x) => {
+    h += '<li class="' + (x.train ? "tr" : x.m ? "mv" : "") + '"><b class="num">' + fmtMin(x.t) + (x.end ? "–" + fmtMin(x.end) : "") + "</b> " + x.n + (x.m ? " <em>spostato</em>" : "") + "</li>";
+  });
+  h += "</ol>";
+  if (p.kind === "eve") h += '<span class="kindtxt">Allenarsi dopo cena il piano non lo prevede: chiedi al nutrizionista.</span>';
+  return h;
+}
 function renderTrain(W) {
-  let h = '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Da qui la pagina capisce dove mettere gli spuntini. Vale uguale per tutte le settimane.</p>';
+  let h = '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Non mangi mai mentre ti alleni: pranzo e cena finiscono almeno 2 ore prima, colazione e spuntini 1 ora prima. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
   for (let d = 0; d < 7; d++) {
     const tr = S.training[d];
-    const kind = trainKind(tr, S.times);
     h += '<div class="trow"><div class="lbl">' + DAY_NAMES[d] + '</div><div class="trctl">' +
       '<div class="seg seg2" role="group" aria-label="' + DAY_NAMES[d] + '">' +
       '<button type="button" id="ton-' + d + '-0" data-action="ton" data-day="' + d + '" data-val="0" aria-pressed="' + !tr.on + '">Riposo</button>' +
@@ -258,9 +278,7 @@ function renderTrain(W) {
       h += '<label class="tfield" for="tt-' + d + '">alle <input type="time" id="tt-' + d + '" step="900" value="' + esc(String(tr.time).padStart(5, "0")) + '" data-action="ttime" data-day="' + d + '"></label>' +
         '<label class="tfield" for="td-' + d + '">per <select id="td-' + d + '" data-action="tdur" data-day="' + d + '">' +
         DURATIONS.map((m) => '<option value="' + m + '"' + (+tr.dur === m ? " selected" : "") + ">" + DUR_LABEL[m] + "</option>").join("") + "</select></label>";
-      const tl = { am: "Prima di pranzo: dopo puoi fare uno spuntino in più.", early: "Dopo pranzo: lo spuntino lo fai subito dopo, verso " + fmtMin(toMin(tr.time) + (+tr.dur || 60)) + ".",
-        late: "Prima di cena: spuntino «prima» verso " + fmtMin(preTime(tr, S.times)) + ".", eve: "Dopo cena: il piano non lo prevede, chiedi al nutrizionista." }[kind];
-      h += '<span class="kindtxt">' + tl + "</span>";
+      h += dayStrip(planDay(tr, S.times));
     }
     h += "</div></div>";
   }

@@ -1,6 +1,6 @@
 // Tiene l'app in memoria sul telefono: si apre anche senza rete.
 // Cambiare VERSIONE a ogni modifica dei file, così il telefono scarica quelli nuovi.
-const VERSIONE = "piatto-v3";
+const VERSIONE = "piatto-v4";
 const FILE = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 const FONT = "piatto-font";
 

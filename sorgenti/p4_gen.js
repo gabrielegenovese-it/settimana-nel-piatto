@@ -11,16 +11,47 @@ function fase3Possible(wi) { return wi >= 6; }
 // ---------- Orari ----------
 function toMin(s) { const [h, m] = String(s || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); }
 function fmtMin(n) { n = ((Math.round(n / 5) * 5) % 1440 + 1440) % 1440; return Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0"); }
-function trainKind(tr, times) {
-  if (!tr || !tr.on) return "no";
-  const s = toMin(tr.time), l = toMin(times.pranzo), c = toMin(times.cena);
-  if (s < l) return "am";
-  if (s < l + 180) return "early";
-  if (s < c) return "late";
-  return "eve";
+// Regola: mai mangiare mentre ti alleni. Pranzo e cena finiscono almeno 2 ore prima dell'inizio,
+// colazione e spuntini almeno 1 ora prima; dopo l'allenamento si mangia anche subito.
+// Un pasto che cade in mezzo va prima o dopo, dove si sposta di meno.
+const GAP_MAIN = 120, GAP_LIGHT = 60, COL = 570, COL_END = 660;
+function fitAround(pref, gap, s, e, lo) {
+  if (pref <= s - gap || pref >= e) return pref;
+  const before = s - gap;
+  if (before >= lo && pref - before <= e - pref) return before;
+  return e;
 }
-function preTime(tr, times) { return Math.max(toMin(times.pranzo) + 90, toMin(tr.time) - 90); }
-function snackTime(times) { return Math.round((toMin(times.pranzo) + toMin(times.cena)) / 2 / 30) * 30; }
+function planDay(tr, times) {
+  const L = toMin(times.pranzo), C = toMin(times.cena);
+  const mid = (a, b) => Math.round((a + b) / 2 / 30) * 30;
+  const p = { kind: "no", col: COL, pranzo: L, cena: C, snack: mid(L, C), pre: null, post: null, moved: {} };
+  if (!tr || !tr.on) return p;
+  const s = toMin(tr.time), e = s + (+tr.dur || 60);
+  p.s = s; p.e = e;
+  // colazione: se si sovrappone, meglio subito dopo (se resta entro le 11), altrimenti 1 ora prima
+  if (!(COL <= s - GAP_LIGHT || COL >= e)) p.col = e <= COL_END ? e : (s - GAP_LIGHT >= 360 ? s - GAP_LIGHT : e);
+  p.pranzo = fitAround(L, GAP_MAIN, s, e, Math.max(L - 120, p.col + 120));
+  p.cena = fitAround(C, GAP_MAIN, s, e, Math.max(C - 150, p.pranzo + 240));
+  if (p.col !== COL) p.moved.col = COL;
+  if (p.pranzo !== L) p.moved.pranzo = L;
+  if (p.cena !== C) p.moved.cena = C;
+  const next = [p.col, p.pranzo, p.cena].filter((t) => t >= e).sort((a, b) => a - b)[0];
+  const mealRightAfter = next != null && next - e <= 60;
+  p.snack = mid(p.pranzo, p.cena);
+  if (e <= p.pranzo) { p.kind = "am"; p.post = mealRightAfter ? null : e; }
+  else if (s >= p.cena) p.kind = "eve";
+  else if (s - p.pranzo < 180) { p.kind = "early"; p.snack = null; p.post = mealRightAfter ? null : e; }
+  else { p.kind = "late"; p.snack = null; p.pre = Math.max(p.pranzo + 120, s - 90); }
+  return p;
+}
+function movedNote(which, p) {
+  const from = p.moved[which];
+  if (from == null) return "";
+  const name = { col: "Colazione", pranzo: "Pranzo", cena: "Cena" }[which];
+  const o = which === "pranzo" ? "o" : "a";
+  if (p[which] < from) return name + " anticipat" + o + " (di solito alle " + fmtMin(from) + "): così hai " + (which === "col" ? "1 ora" : "2 ore") + " per digerire prima dell'allenamento.";
+  return name + " spostat" + o + " a dopo l'allenamento (di solito alle " + fmtMin(from) + ").";
+}
 
 // ---------- Casualità ripetibile ----------
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -122,11 +153,11 @@ function buildWeek(S) {
   for (let d = 0; d < 7; d++) {
     const date = addDays(parseISO(S.weekStart), d);
     const tr = S.training[d] || { on: false };
-    const train = trainKind(tr, S.times);
+    const P = planDay(tr, S.times);
+    const train = P.kind;
     const isTrain = train !== "no";
-    const tStart = toMin(tr.time), tEnd = tStart + (+tr.dur || 60);
-    const tL = toMin(S.times.pranzo), tC = toMin(S.times.cena);
-    const trainSub = fmtMin(tStart) + " – " + fmtMin(tEnd);
+    const trainSub = isTrain ? fmtMin(P.s) + " – " + fmtMin(P.e) : "";
+    const colNote = movedNote("col", P);
     const fr = [fruits[(2 * d) % fruits.length], fruits[(2 * d + 1) % fruits.length]];
     let fruitUsed = 0;
     const takeFruit = () => fr[fruitUsed++ % 2];
@@ -140,39 +171,39 @@ function buildWeek(S) {
     let oat = false;
     if (type === "B") {
       const f = takeFruit();
-      items.push({ slot: "col", t: 570, when: "Colazione", sub: "9:30 – 11:00", title: "Pane, Biraghini e frutta", short: "pane e Biraghini",
-        lines: [...CAT.colB.lines, [f.g + " g", f.name + " (o 200 ml di succo)"]],
+      items.push({ slot: "col", t: P.col, when: "Colazione", sub: fmtMin(P.col), title: "Pane, Biraghini e frutta", short: "pane e Biraghini",
+        lines: [...CAT.colB.lines, [f.g + " g", f.name + " (o 200 ml di succo)"]], note: colNote,
         edit: { key: d + "|col", fields: [{ f: "type", label: "Tipo", val: "B", opts: [["A", "Proteina + carboidrato"], ["B", "Pane, Biraghini e frutta"]] }] } });
     } else {
       const p = find(CAT.colProt, ov(d + "|col", "prot", prots[aCount % prots.length].id));
       const c = find(CAT.colCarb, ov(d + "|col", "carb", ccarbs[(aCount + Math.floor(aCount / prots.length)) % ccarbs.length].id));
       aCount++;
       oat = !!p.oat;
-      items.push({ slot: "col", t: 570, when: "Colazione", sub: "9:30 – 11:00", title: cap(p.short) + " + " + c.short, short: p.short + " + " + c.short,
+      items.push({ slot: "col", t: P.col, when: "Colazione", sub: fmtMin(P.col), title: cap(p.short) + " + " + c.short, short: p.short + " + " + c.short,
         lines: [...p.lines, ...c.lines],
-        note: oat ? "Latte d'avena: al pomeriggio aggiungi uno yogurt greco (è già nello spuntino)." : "",
+        note: [colNote, oat ? "Latte d'avena: al pomeriggio aggiungi uno yogurt greco (è già nello spuntino)." : ""].filter(Boolean).join(" "),
         edit: { key: d + "|col", fields: [
           { f: "type", label: "Tipo", val: "A", opts: [["A", "Proteina + carboidrato"], ["B", "Pane, Biraghini e frutta"]] },
           { f: "prot", label: "Proteina", val: p.id, opts: CAT.colProt.map((o) => [o.id, o.name]) },
           { f: "carb", label: "Carboidrato", val: c.id, opts: CAT.colCarb.map((o) => [o.id, o.name]) }] } });
     }
 
-    // Allenamento al mattino
+    // Allenamento
     if (isTrain) {
-      items.push({ slot: "dur", t: tStart, when: "Allenamento", sub: trainSub, train: true, title: "Durante l'allenamento", lines: during.lines,
+      items.push({ slot: "dur", t: P.s, when: "Allenamento", sub: trainSub, train: true, title: "Durante l'allenamento", lines: during.lines,
         note: train === "eve" ? "Il piano non dice cosa mangiare se ti alleni dopo cena: chiedilo al nutrizionista." : "" });
     }
-    if (train === "am") {
+    if (train === "am" && P.post != null) {
       const po = find(CAT.post, ov(d + "|postam", "opt", posts[d % posts.length].id));
-      const it = snackItem(po, "postam", "Subito dopo", "verso " + fmtMin(tEnd) + " · se vuoi", "Dopo l'allenamento · se vuoi", CAT.post, false, null, true);
-      it.t = tEnd + 1; items.push(it);
+      const it = snackItem(po, "postam", "Subito dopo", "verso " + fmtMin(P.post) + " · se vuoi", "Dopo l'allenamento · se vuoi", CAT.post, false, null, true);
+      it.t = P.post + 1; items.push(it);
     }
 
     // Pranzo e cena
     const meal = (m) => {
       if (S.free && S.free.d === d && S.free.m === m) {
-        return { slot: m, t: m === "pranzo" ? tL : tC, when: cap(m), sub: fmtMin(m === "pranzo" ? tL : tC), title: "Pasto libero", short: "pasto libero", group: "libero", tag: "Libero",
-          lines: [["", "es. 1 pizza o sushi, senza esagerare"], ["max 1", "alcolico a settimana: 1 bicchiere di vino o 1 birra piccola"]] };
+        return { slot: m, t: P[m], when: cap(m), sub: fmtMin(P[m]), title: "Pasto libero", short: "pasto libero", group: "libero", tag: "Libero",
+          lines: [["", "es. 1 pizza o sushi, senza esagerare"], ["max 1", "alcolico a settimana: 1 bicchiere di vino o 1 birra piccola"]], note: movedNote(m, P) };
       }
       const info = secFor[d + m];
       const key = d + "|" + m;
@@ -198,10 +229,11 @@ function buildWeek(S) {
       lines.push(["a piacere", veg + " (la verdura non si pesa)"]);
       if (!usesPesto) lines.push(["1 cucchiaio", "olio extravergine (10 g) per tutto il pasto"]);
       const notes = [];
+      if (P.moved[m] != null) notes.push(movedNote(m, P));
       if (isLeg) notes.push("Coi legumi la pasta o il pane scendono di 20 g: il numero qui sopra è già giusto.");
       if (s.noMeat) notes.push(NO_MEAT_NOTE);
       if (f3) notes.push("Fase 3: pranzo aumentato perché il peso si è bloccato.");
-      return { slot: m, t: m === "pranzo" ? tL : tC, when: cap(m), sub: fmtMin(m === "pranzo" ? tL : tC), title, short: isLeg && pastaLike ? title.toLowerCase() : s.short, group: s.g, tag: find(CAT.groups, s.g).name.split(",")[0],
+      return { slot: m, t: P[m], when: cap(m), sub: fmtMin(P[m]), title, short: isLeg && pastaLike ? title.toLowerCase() : s.short, group: s.g, tag: find(CAT.groups, s.g).name.split(",")[0],
         stag: !!s.stag, lines, note: notes.join(" "), secId: s.id,
         edit: { key, fields: [
           { f: "sec", label: "Secondo", val: s.id, groups: true },
@@ -221,22 +253,20 @@ function buildWeek(S) {
       return { slot: key, when, sub, title, train: list !== CAT.snack, short: opt.short, optional, lines,
         edit: { key: d + "|" + key, fields: [{ f: "opt", label: "Scegli", val: opt.id, opts: list.map((o) => [o.id, o.name]) }] }, optId: opt.id };
     }
-    if (train === "early") {
+    if (train === "early" && P.post != null) {
       const po = find(CAT.post, ov(d + "|post", "opt", posts[(d + 1) % posts.length].id));
-      const it = snackItem(po, "post", "Subito dopo", "verso " + fmtMin(tEnd), "Dopo l'allenamento: " + po.name.toLowerCase(), CAT.post, true, oat);
-      it.t = tEnd + 1; items.push(it);
+      const it = snackItem(po, "post", "Subito dopo", "verso " + fmtMin(P.post), "Dopo l'allenamento: " + po.name.toLowerCase(), CAT.post, true, oat);
+      it.t = P.post + 1; items.push(it);
     } else if (train === "late") {
       const pr = find(CAT.pre, ov(d + "|pre", "opt", pres[d % pres.length].id));
-      const pt = preTime(tr, S.times);
-      const it = snackItem(pr, "pre", "Prima", "verso " + fmtMin(pt), "Prima dell'allenamento: " + pr.name.toLowerCase(), CAT.pre, true, oat);
-      it.t = pt; items.push(it);
-    } else {
+      const it = snackItem(pr, "pre", "Prima", "verso " + fmtMin(P.pre), "Prima dell'allenamento: " + pr.name.toLowerCase(), CAT.pre, true, oat);
+      it.t = P.pre; items.push(it);
+    } else if (P.snack != null) {
       let def = snacks[d % snacks.length];
       if (def.max1) { if (dessertUsed) def = snacks.find((o) => !o.max1) || def; else dessertUsed = true; }
       const sn = find(CAT.snack, ov(d + "|snack", "opt", def.id));
-      const st = snackTime(S.times);
-      const it = snackItem(sn, "snack", "Pomeriggio", "verso " + fmtMin(st), sn.name, CAT.snack, true, oat);
-      it.t = st; items.push(it);
+      const it = snackItem(sn, "snack", "Pomeriggio", "verso " + fmtMin(P.snack), sn.name, CAT.snack, true, oat);
+      it.t = P.snack; items.push(it);
     }
 
     items.push(meal("cena"));
@@ -252,10 +282,10 @@ function buildWeek(S) {
       fruitUsed++;
     }
 
-    if (chocDays.includes(d)) items.push({ slot: "choc", t: tC + 2, when: "Dopo cena", small: true, title: "1 cioccolatino", lines: [] });
+    if (chocDays.includes(d)) items.push({ slot: "choc", t: P.cena + 2, when: "Dopo cena", small: true, title: "1 cioccolatino", lines: [] });
 
     items.sort((a, b) => a.t - b.t);
-    days.push({ d, date, train, isTrain, items, time: isTrain ? fmtMin(tStart) : null, trainSub });
+    days.push({ d, date, train, isTrain, items, time: isTrain ? fmtMin(P.s) : null, trainSub });
   }
 
   // --- conteggi finali (dopo le modifiche a mano) ---
