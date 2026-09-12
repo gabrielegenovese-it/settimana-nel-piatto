@@ -17,7 +17,7 @@ function adopt(saved) {
     const map = { am: "09:00", early: "14:30", late: "18:00" };
     S.training = S.training.map((k) => ({ on: k !== "no", time: map[k] || "18:00", dur: 60 }));
   }
-  if (!S.times) S.times = { pranzo: "13:00", cena: "20:00" };
+  S.times = Object.assign({}, TIMES_DEFAULT, S.times || {});
 }
 adopt(lsGet(LS_KEY));
 const ui = lsGet(LS_UI) || {};
@@ -256,7 +256,7 @@ function dayStrip(p) {
   ];
   if (p.pre != null) seq.push({ t: p.pre, n: "Spuntino prima" });
   if (p.post != null) seq.push({ t: p.post + 1, n: p.kind === "am" ? "Spuntino dopo, se vuoi" : "Spuntino dopo" });
-  if (p.snack != null) seq.push({ t: p.snack, n: "Spuntino" });
+  if (p.snack != null) seq.push({ t: p.snack, n: "Spuntino", m: p.moved.snack != null });
   seq.sort((a, b) => a.t - b.t);
   let h = '<ol class="strip">';
   seq.forEach((x) => {
@@ -266,8 +266,24 @@ function dayStrip(p) {
   if (p.kind === "eve") h += '<span class="kindtxt">Allenarsi dopo cena il piano non lo prevede: chiedi al nutrizionista.</span>';
   return h;
 }
+function mealTimesSection() {
+  const tm = S.times;
+  let h = '<div class="section"><h2>I miei orari dei pasti</h2><p>Metti gli orari di una giornata normale: valgono per tutti i giorni. Nei giorni di allenamento la pagina li sposta solo se serve.</p><div class="fieldrow">';
+  MEALS.forEach(([k, n]) => {
+    h += '<label class="tfield" for="mt-' + k + '">' + n + ' <input type="time" id="mt-' + k + '" step="900" value="' + esc(String(tm[k]).padStart(5, "0")) + '" data-action="mtime" data-meal="' + k + '"></label>';
+  });
+  h += "</div>";
+  const m = MEALS.map(([k]) => toMin(tm[k]));
+  const warn = [];
+  if (!(m[0] < m[1] && m[1] < m[3])) warn.push("Gli orari non sono in ordine: colazione, poi pranzo, poi cena.");
+  else if (!(m[2] >= m[1] + 60 && m[2] <= m[3] - 60)) warn.push("Lo spuntino deve stare ad almeno 1 ora da pranzo e cena: per ora la pagina lo mette alle " + fmtMin(Math.round((m[1] + m[3]) / 2 / 30) * 30) + ".");
+  if (m[0] < 570 || m[0] > 660) warn.push("Il piano indica la colazione tra le 9:30 e le 11:00.");
+  if (warn.length) h += '<p class="note" style="margin-top:8px">' + warn.join(" ") + "</p>";
+  return h + "</div>";
+}
 function renderTrain(W) {
-  let h = '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Ogni pasto, anche colazione e spuntini, sta almeno 1 ora e mezza prima dell\'allenamento, oppure subito dopo. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
+  let h = mealTimesSection();
+  h += '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Ogni pasto, anche colazione e spuntini, sta almeno 1 ora e mezza prima dell\'allenamento, oppure subito dopo. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
   for (let d = 0; d < 7; d++) {
     const tr = S.training[d];
     h += '<div class="trow"><div class="lbl">' + DAY_NAMES[d] + '</div><div class="trctl">' +
@@ -283,10 +299,6 @@ function renderTrain(W) {
     h += "</div></div>";
   }
   h += "</div>";
-
-  h += '<div class="section"><h2>I miei orari dei pasti</h2><p>La colazione è sempre tra le 9:30 e le 11:00, come dice il piano. Pranzo e cena mettili tu.</p><div class="fieldrow">' +
-    '<label class="tfield" for="mt-pranzo">Pranzo alle <input type="time" id="mt-pranzo" step="900" value="' + esc(S.times.pranzo.padStart(5, "0")) + '" data-action="mtime" data-meal="pranzo"></label>' +
-    '<label class="tfield" for="mt-cena">Cena alle <input type="time" id="mt-cena" step="900" value="' + esc(S.times.cena.padStart(5, "0")) + '" data-action="mtime" data-meal="cena"></label></div></div>';
 
   h += '<div class="section"><h2>Durante l\'allenamento</h2><p>Cosa metti nell\'acqua che bevi mentre ti alleni.</p><div class="chips">';
   CAT.during.forEach((o) => { h += '<button type="button" class="chip" id="du-' + o.id + '" data-action="during" data-val="' + o.id + '" aria-pressed="' + (S.likes.during === o.id) + '">' + esc(o.name) + "<small>" + esc(o.lines[0][0] ? o.lines[0][0] + " nell'acqua" : "nell'acqua") + "</small></button>"; });

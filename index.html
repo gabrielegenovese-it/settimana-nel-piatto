@@ -262,7 +262,7 @@ h1, h2, h3 { font-family: var(--f-display); margin: 0; line-height: 1.1; text-wr
   </header>
 
   <nav class="steps" role="tablist" aria-label="Passi">
-    <button type="button" role="tab" id="tab-train" data-action="tab" data-tab="train"><span class="n">1</span><span class="t">Quando mi alleno<span class="s">giorni e orari</span></span></button>
+    <button type="button" role="tab" id="tab-train" data-action="tab" data-tab="train"><span class="n">1</span><span class="t">Orari e allenamenti<span class="s">pasti e palestra</span></span></button>
     <button type="button" role="tab" id="tab-likes" data-action="tab" data-tab="likes"><span class="n">2</span><span class="t">Cosa mi piace<span class="s">scegli i cibi</span></span></button>
     <button type="button" role="tab" id="tab-week" data-action="tab" data-tab="week"><span class="n">3</span><span class="t">La mia settimana<span class="s">il calendario</span></span></button>
   </nav>
@@ -274,7 +274,7 @@ h1, h2, h3 { font-family: var(--f-display); margin: 0; line-height: 1.1; text-wr
   <section id="pane-likes" role="tabpanel" aria-labelledby="tab-likes" hidden></section>
 
   <p class="foot">Costruito dal piano alimentare consegnato il 7 settembre 2026, versione vegetariana: niente carne e niente pesce. Le quantità sono quelle del piano; quelle di gnocchi, patate e trofie sono calcolate con le equivalenze del piano. Gli orari degli spuntini sono indicativi. Due punti sono una mia interpretazione, da confermare col nutrizionista: lo spuntino prima o dopo l'allenamento prende il posto di quello normale, e la Fase 3 parte dal 19 ottobre.</p>
-  <p class="foot" style="margin-top:6px">Versione 5 · <span id="sync"></span></p>
+  <p class="foot" style="margin-top:6px">Versione 6 · <span id="sync"></span></p>
 </div>
 <div id="toast" class="toast" hidden></div>
 <script>
@@ -391,6 +391,8 @@ const CARB_Q = {
 
 // Il tipo di allenamento si ricava dall'orario, rispetto a pranzo e cena
 const KIND_LABEL = { am: "prima di pranzo", early: "dopo pranzo", late: "prima di cena", eve: "dopo cena" };
+const TIMES_DEFAULT = { colazione: "09:30", pranzo: "13:00", spuntino: "16:30", cena: "20:00" };
+const MEALS = [["colazione", "Colazione"], ["pranzo", "Pranzo"], ["spuntino", "Spuntino"], ["cena", "Cena"]];
 const DURATIONS = [45, 60, 75, 90, 120];
 const DUR_LABEL = { 45: "45 min", 60: "1 ora", 75: "1 ora e 15", 90: "1 ora e mezza", 120: "2 ore" };
 const NO_MEAT_NOTE = "Nel piano questo formaggio va con 30 g di bresaola o crudo. Da vegetariano non c'è un sostituto scritto: chiedi al nutrizionista.";
@@ -414,7 +416,7 @@ function defaultState() {
       { on: false, time: "18:00", dur: 60 }, { on: true, time: "18:00", dur: 75 }, { on: true, time: "10:00", dur: 60 },
       { on: false, time: "18:00", dur: 60 }
     ],
-    times: { pranzo: "13:00", cena: "20:00" },
+    times: Object.assign({}, TIMES_DEFAULT),
     free: { d: 5, m: "cena" },
     likes: {
       colProt: ["yog", "pveg", "avena"],
@@ -450,39 +452,49 @@ function fmtMin(n) { n = ((Math.round(n / 5) * 5) % 1440 + 1440) % 1440; return 
 // Regola di Gabriele: mai mangiare mentre ti alleni, e ogni pasto (colazione e spuntini compresi)
 // almeno 1 ora e mezza prima dell'inizio; dopo l'allenamento si mangia anche subito.
 // Un pasto che cade in mezzo va prima o dopo, dove si sposta di meno.
-const GAP = 90, GAP_MAIN = GAP, GAP_LIGHT = GAP, COL = 570, COL_END = 660;
+const GAP = 90, GAP_MAIN = GAP, GAP_LIGHT = GAP;
 function fitAround(pref, gap, s, e, lo) {
   if (pref <= s - gap || pref >= e) return pref;
   const before = s - gap;
   if (before >= lo && pref - before <= e - pref) return before;
   return e;
 }
+// Gli orari di partenza sono quelli scelti da Gabriele (S.times); qui si spostano solo per l'allenamento.
 function planDay(tr, times) {
-  const L = toMin(times.pranzo), C = toMin(times.cena);
+  const tm = Object.assign({}, TIMES_DEFAULT, times);
+  const B = toMin(tm.colazione), L = toMin(tm.pranzo), SN = toMin(tm.spuntino), C = toMin(tm.cena);
   const mid = (a, b) => Math.round((a + b) / 2 / 30) * 30;
-  const p = { kind: "no", col: COL, pranzo: L, cena: C, snack: mid(L, C), pre: null, post: null, moved: {} };
+  // lo spuntino sta tra pranzo e cena, con almeno un'ora di distanza; se no va a metà strada
+  const snackIn = (lo, hi) => (SN >= lo + 60 && SN <= hi - 60 ? SN : mid(lo, hi));
+  const p = { kind: "no", col: B, pranzo: L, cena: C, snack: snackIn(L, C), pre: null, post: null, moved: {} };
+  if (p.snack !== SN) p.moved.snack = SN;
   if (!tr || !tr.on) return p;
   const s = toMin(tr.time), e = s + (+tr.dur || 60);
   p.s = s; p.e = e;
-  // colazione: se si sovrappone, meglio subito dopo (se resta entro le 11), altrimenti 1 ora prima
-  if (!(COL <= s - GAP_LIGHT || COL >= e)) p.col = e <= COL_END ? e : (s - GAP_LIGHT >= 360 ? s - GAP_LIGHT : e);
-  p.pranzo = fitAround(L, GAP_MAIN, s, e, Math.max(L - 120, p.col + 120));
-  p.cena = fitAround(C, GAP_MAIN, s, e, Math.max(C - 150, p.pranzo + 240));
-  if (p.col !== COL) p.moved.col = COL;
+  p.col = fitAround(B, GAP, s, e, 300);
+  p.pranzo = fitAround(L, GAP, s, e, Math.max(L - 120, p.col + 120));
+  p.cena = fitAround(C, GAP, s, e, Math.max(C - 150, p.pranzo + 180));
+  if (p.col !== B) p.moved.col = B;
   if (p.pranzo !== L) p.moved.pranzo = L;
   if (p.cena !== C) p.moved.cena = C;
   const next = [p.col, p.pranzo, p.cena].filter((t) => t >= e).sort((a, b) => a - b)[0];
   const mealRightAfter = next != null && next - e <= 60;
-  p.snack = mid(p.pranzo, p.cena);
+  p.snack = snackIn(p.pranzo, p.cena);
+  if (p.snack !== SN) p.moved.snack = SN; else delete p.moved.snack;
   if (e <= p.pranzo) { p.kind = "am"; p.post = mealRightAfter ? null : e; }
   else if (s >= p.cena) p.kind = "eve";
-  else if (s - p.pranzo < 180) { p.kind = "early"; p.snack = null; p.post = mealRightAfter ? null : e; }
-  else { p.kind = "late"; p.snack = null; p.pre = s - GAP; }
+  else {
+    p.snack = null; delete p.moved.snack;
+    if (s - p.pranzo < 180) { p.kind = "early"; p.post = mealRightAfter ? null : e; }
+    // spuntino prima: all'orario solito se cade tra 2 ore e mezza e 1 ora e mezza prima, se no 1 ora e mezza prima
+    else { p.kind = "late"; p.pre = SN <= s - GAP && SN >= s - 150 && SN >= p.pranzo + 60 ? SN : s - GAP; }
+  }
   return p;
 }
 function movedNote(which, p) {
   const from = p.moved[which];
   if (from == null) return "";
+  if (which === "snack") return "Spuntino alle " + fmtMin(p.snack) + " invece che alle " + fmtMin(from) + ", per stare lontano da pranzo e cena.";
   const name = { col: "Colazione", pranzo: "Pranzo", cena: "Cena" }[which];
   const o = which === "pranzo" ? "o" : "a";
   if (p[which] < from) return name + " anticipat" + o + " (di solito alle " + fmtMin(from) + "): così hai 1 ora e mezza per digerire prima dell'allenamento.";
@@ -701,8 +713,8 @@ function buildWeek(S) {
       let def = snacks[d % snacks.length];
       if (def.max1) { if (dessertUsed) def = snacks.find((o) => !o.max1) || def; else dessertUsed = true; }
       const sn = find(CAT.snack, ov(d + "|snack", "opt", def.id));
-      const it = snackItem(sn, "snack", "Pomeriggio", "verso " + fmtMin(P.snack), sn.name, CAT.snack, true, oat);
-      it.t = P.snack; items.push(it);
+      const it = snackItem(sn, "snack", "Spuntino", fmtMin(P.snack), sn.name, CAT.snack, true, oat);
+      it.t = P.snack; it.note = movedNote("snack", P); items.push(it);
     }
 
     items.push(meal("cena"));
@@ -752,7 +764,7 @@ function adopt(saved) {
     const map = { am: "09:00", early: "14:30", late: "18:00" };
     S.training = S.training.map((k) => ({ on: k !== "no", time: map[k] || "18:00", dur: 60 }));
   }
-  if (!S.times) S.times = { pranzo: "13:00", cena: "20:00" };
+  S.times = Object.assign({}, TIMES_DEFAULT, S.times || {});
 }
 adopt(lsGet(LS_KEY));
 const ui = lsGet(LS_UI) || {};
@@ -991,7 +1003,7 @@ function dayStrip(p) {
   ];
   if (p.pre != null) seq.push({ t: p.pre, n: "Spuntino prima" });
   if (p.post != null) seq.push({ t: p.post + 1, n: p.kind === "am" ? "Spuntino dopo, se vuoi" : "Spuntino dopo" });
-  if (p.snack != null) seq.push({ t: p.snack, n: "Spuntino" });
+  if (p.snack != null) seq.push({ t: p.snack, n: "Spuntino", m: p.moved.snack != null });
   seq.sort((a, b) => a.t - b.t);
   let h = '<ol class="strip">';
   seq.forEach((x) => {
@@ -1001,8 +1013,24 @@ function dayStrip(p) {
   if (p.kind === "eve") h += '<span class="kindtxt">Allenarsi dopo cena il piano non lo prevede: chiedi al nutrizionista.</span>';
   return h;
 }
+function mealTimesSection() {
+  const tm = S.times;
+  let h = '<div class="section"><h2>I miei orari dei pasti</h2><p>Metti gli orari di una giornata normale: valgono per tutti i giorni. Nei giorni di allenamento la pagina li sposta solo se serve.</p><div class="fieldrow">';
+  MEALS.forEach(([k, n]) => {
+    h += '<label class="tfield" for="mt-' + k + '">' + n + ' <input type="time" id="mt-' + k + '" step="900" value="' + esc(String(tm[k]).padStart(5, "0")) + '" data-action="mtime" data-meal="' + k + '"></label>';
+  });
+  h += "</div>";
+  const m = MEALS.map(([k]) => toMin(tm[k]));
+  const warn = [];
+  if (!(m[0] < m[1] && m[1] < m[3])) warn.push("Gli orari non sono in ordine: colazione, poi pranzo, poi cena.");
+  else if (!(m[2] >= m[1] + 60 && m[2] <= m[3] - 60)) warn.push("Lo spuntino deve stare ad almeno 1 ora da pranzo e cena: per ora la pagina lo mette alle " + fmtMin(Math.round((m[1] + m[3]) / 2 / 30) * 30) + ".");
+  if (m[0] < 570 || m[0] > 660) warn.push("Il piano indica la colazione tra le 9:30 e le 11:00.");
+  if (warn.length) h += '<p class="note" style="margin-top:8px">' + warn.join(" ") + "</p>";
+  return h + "</div>";
+}
 function renderTrain(W) {
-  let h = '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Ogni pasto, anche colazione e spuntini, sta almeno 1 ora e mezza prima dell\'allenamento, oppure subito dopo. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
+  let h = mealTimesSection();
+  h += '<div class="section"><h2>Quando mi alleno</h2><p>Per ogni giorno scegli se ti alleni, a che ora inizi e quanto dura. Vale uguale per tutte le settimane. Ogni pasto, anche colazione e spuntini, sta almeno 1 ora e mezza prima dell\'allenamento, oppure subito dopo. Se un pasto cade in mezzo, la pagina lo sposta e te lo segna.</p>';
   for (let d = 0; d < 7; d++) {
     const tr = S.training[d];
     h += '<div class="trow"><div class="lbl">' + DAY_NAMES[d] + '</div><div class="trctl">' +
@@ -1018,10 +1046,6 @@ function renderTrain(W) {
     h += "</div></div>";
   }
   h += "</div>";
-
-  h += '<div class="section"><h2>I miei orari dei pasti</h2><p>La colazione è sempre tra le 9:30 e le 11:00, come dice il piano. Pranzo e cena mettili tu.</p><div class="fieldrow">' +
-    '<label class="tfield" for="mt-pranzo">Pranzo alle <input type="time" id="mt-pranzo" step="900" value="' + esc(S.times.pranzo.padStart(5, "0")) + '" data-action="mtime" data-meal="pranzo"></label>' +
-    '<label class="tfield" for="mt-cena">Cena alle <input type="time" id="mt-cena" step="900" value="' + esc(S.times.cena.padStart(5, "0")) + '" data-action="mtime" data-meal="cena"></label></div></div>';
 
   h += '<div class="section"><h2>Durante l\'allenamento</h2><p>Cosa metti nell\'acqua che bevi mentre ti alleni.</p><div class="chips">';
   CAT.during.forEach((o) => { h += '<button type="button" class="chip" id="du-' + o.id + '" data-action="during" data-val="' + o.id + '" aria-pressed="' + (S.likes.during === o.id) + '">' + esc(o.name) + "<small>" + esc(o.lines[0][0] ? o.lines[0][0] + " nell'acqua" : "nell'acqua") + "</small></button>"; });

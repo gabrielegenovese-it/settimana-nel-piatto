@@ -14,39 +14,49 @@ function fmtMin(n) { n = ((Math.round(n / 5) * 5) % 1440 + 1440) % 1440; return 
 // Regola di Gabriele: mai mangiare mentre ti alleni, e ogni pasto (colazione e spuntini compresi)
 // almeno 1 ora e mezza prima dell'inizio; dopo l'allenamento si mangia anche subito.
 // Un pasto che cade in mezzo va prima o dopo, dove si sposta di meno.
-const GAP = 90, GAP_MAIN = GAP, GAP_LIGHT = GAP, COL = 570, COL_END = 660;
+const GAP = 90, GAP_MAIN = GAP, GAP_LIGHT = GAP;
 function fitAround(pref, gap, s, e, lo) {
   if (pref <= s - gap || pref >= e) return pref;
   const before = s - gap;
   if (before >= lo && pref - before <= e - pref) return before;
   return e;
 }
+// Gli orari di partenza sono quelli scelti da Gabriele (S.times); qui si spostano solo per l'allenamento.
 function planDay(tr, times) {
-  const L = toMin(times.pranzo), C = toMin(times.cena);
+  const tm = Object.assign({}, TIMES_DEFAULT, times);
+  const B = toMin(tm.colazione), L = toMin(tm.pranzo), SN = toMin(tm.spuntino), C = toMin(tm.cena);
   const mid = (a, b) => Math.round((a + b) / 2 / 30) * 30;
-  const p = { kind: "no", col: COL, pranzo: L, cena: C, snack: mid(L, C), pre: null, post: null, moved: {} };
+  // lo spuntino sta tra pranzo e cena, con almeno un'ora di distanza; se no va a metà strada
+  const snackIn = (lo, hi) => (SN >= lo + 60 && SN <= hi - 60 ? SN : mid(lo, hi));
+  const p = { kind: "no", col: B, pranzo: L, cena: C, snack: snackIn(L, C), pre: null, post: null, moved: {} };
+  if (p.snack !== SN) p.moved.snack = SN;
   if (!tr || !tr.on) return p;
   const s = toMin(tr.time), e = s + (+tr.dur || 60);
   p.s = s; p.e = e;
-  // colazione: se si sovrappone, meglio subito dopo (se resta entro le 11), altrimenti 1 ora prima
-  if (!(COL <= s - GAP_LIGHT || COL >= e)) p.col = e <= COL_END ? e : (s - GAP_LIGHT >= 360 ? s - GAP_LIGHT : e);
-  p.pranzo = fitAround(L, GAP_MAIN, s, e, Math.max(L - 120, p.col + 120));
-  p.cena = fitAround(C, GAP_MAIN, s, e, Math.max(C - 150, p.pranzo + 240));
-  if (p.col !== COL) p.moved.col = COL;
+  p.col = fitAround(B, GAP, s, e, 300);
+  p.pranzo = fitAround(L, GAP, s, e, Math.max(L - 120, p.col + 120));
+  p.cena = fitAround(C, GAP, s, e, Math.max(C - 150, p.pranzo + 180));
+  if (p.col !== B) p.moved.col = B;
   if (p.pranzo !== L) p.moved.pranzo = L;
   if (p.cena !== C) p.moved.cena = C;
   const next = [p.col, p.pranzo, p.cena].filter((t) => t >= e).sort((a, b) => a - b)[0];
   const mealRightAfter = next != null && next - e <= 60;
-  p.snack = mid(p.pranzo, p.cena);
+  p.snack = snackIn(p.pranzo, p.cena);
+  if (p.snack !== SN) p.moved.snack = SN; else delete p.moved.snack;
   if (e <= p.pranzo) { p.kind = "am"; p.post = mealRightAfter ? null : e; }
   else if (s >= p.cena) p.kind = "eve";
-  else if (s - p.pranzo < 180) { p.kind = "early"; p.snack = null; p.post = mealRightAfter ? null : e; }
-  else { p.kind = "late"; p.snack = null; p.pre = s - GAP; }
+  else {
+    p.snack = null; delete p.moved.snack;
+    if (s - p.pranzo < 180) { p.kind = "early"; p.post = mealRightAfter ? null : e; }
+    // spuntino prima: all'orario solito se cade tra 2 ore e mezza e 1 ora e mezza prima, se no 1 ora e mezza prima
+    else { p.kind = "late"; p.pre = SN <= s - GAP && SN >= s - 150 && SN >= p.pranzo + 60 ? SN : s - GAP; }
+  }
   return p;
 }
 function movedNote(which, p) {
   const from = p.moved[which];
   if (from == null) return "";
+  if (which === "snack") return "Spuntino alle " + fmtMin(p.snack) + " invece che alle " + fmtMin(from) + ", per stare lontano da pranzo e cena.";
   const name = { col: "Colazione", pranzo: "Pranzo", cena: "Cena" }[which];
   const o = which === "pranzo" ? "o" : "a";
   if (p[which] < from) return name + " anticipat" + o + " (di solito alle " + fmtMin(from) + "): così hai 1 ora e mezza per digerire prima dell'allenamento.";
@@ -265,8 +275,8 @@ function buildWeek(S) {
       let def = snacks[d % snacks.length];
       if (def.max1) { if (dessertUsed) def = snacks.find((o) => !o.max1) || def; else dessertUsed = true; }
       const sn = find(CAT.snack, ov(d + "|snack", "opt", def.id));
-      const it = snackItem(sn, "snack", "Pomeriggio", "verso " + fmtMin(P.snack), sn.name, CAT.snack, true, oat);
-      it.t = P.snack; items.push(it);
+      const it = snackItem(sn, "snack", "Spuntino", fmtMin(P.snack), sn.name, CAT.snack, true, oat);
+      it.t = P.snack; it.note = movedNote("snack", P); items.push(it);
     }
 
     items.push(meal("cena"));

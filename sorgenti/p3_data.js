@@ -111,6 +111,8 @@ const CARB_Q = {
 
 // Il tipo di allenamento si ricava dall'orario, rispetto a pranzo e cena
 const KIND_LABEL = { am: "prima di pranzo", early: "dopo pranzo", late: "prima di cena", eve: "dopo cena" };
+const TIMES_DEFAULT = { colazione: "09:30", pranzo: "13:00", spuntino: "16:30", cena: "20:00" };
+const MEALS = [["colazione", "Colazione"], ["pranzo", "Pranzo"], ["spuntino", "Spuntino"], ["cena", "Cena"]];
 const DURATIONS = [45, 60, 75, 90, 120];
 const DUR_LABEL = { 45: "45 min", 60: "1 ora", 75: "1 ora e 15", 90: "1 ora e mezza", 120: "2 ore" };
 const NO_MEAT_NOTE = "Nel piano questo formaggio va con 30 g di bresaola o crudo. Da vegetariano non c'è un sostituto scritto: chiedi al nutrizionista.";
@@ -134,7 +136,7 @@ function defaultState() {
       { on: false, time: "18:00", dur: 60 }, { on: true, time: "18:00", dur: 75 }, { on: true, time: "10:00", dur: 60 },
       { on: false, time: "18:00", dur: 60 }
     ],
-    times: { pranzo: "13:00", cena: "20:00" },
+    times: Object.assign({}, TIMES_DEFAULT),
     free: { d: 5, m: "cena" },
     likes: {
       colProt: ["yog", "pveg", "avena"],
